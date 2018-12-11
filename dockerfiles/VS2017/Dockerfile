@@ -1,5 +1,5 @@
 # escape=`
-FROM microsoft/windowsservercore
+FROM FROM microsoft/dotnet-framework:4.7.1
 
 # Restore the default Windows shell for correct batch processing below.
 SHELL ["cmd", "/S", "/C"]

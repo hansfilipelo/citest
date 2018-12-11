@@ -1,23 +1,30 @@
 FROM centos:centos7
 
 # Define versions
-ENV pythonVersion=${_PYTHON_VERSION:-3.7.1}
-ENV clangVersion=${_CLANG_VERSION:-RELEASE_700}
-ENV cmakeVersion=${_CMAKE_VERSION:-3.13.1}
-ENV zlibVersion=${_ZLIB_VERSION:-v1.2.11}
-ENV libffiVersion=${_LIBFFI_VERSION:-v3.2.1}
-ENV makeVersion=${_MAKE_VERSION:-4.2}
+ENV pythonVersion=${BUILDTOOL_PYTHON_VERSION:-3.7.1}
+ENV clangVersion=${BUILDTOOL_CLANG_VERSION:-RELEASE_700}
+ENV cmakeVersion=${BUILDTOOL_CMAKE_VERSION:-3.13.1}
+ENV zlibVersion=${BUILDTOOL_ZLIB_VERSION:-v1.2.11}
+# Latest release of libffi is missing an important flag to configure (--disable-docs)
+# Build master for now
+ENV libffiVersion=${BUILDTOOL_LIBFFI_VERSION:-master}
 
 ENV bootstrapPrefix=/opt/bootstrap
 ENV contribPath=/opt/contrib
 
 ADD https://www.python.org/ftp/python/$pythonVersion/Python-$pythonVersion.tgz Python-$pythonVersion.tgz
 ADD https://github.com/Kitware/CMake/releases/download/v$cmakeVersion/cmake-$cmakeVersion-Linux-x86_64.sh cmake-$cmakeVersion.sh
-ADD http://ftp.gnu.org/gnu/make/make-4.2.tar.gz make-$makeVersion.tar.gz
+#ADD http://ftp.gnu.org/gnu/make/make-4.2.tar.gz make-$makeVersion.tar.gz
 
 # We will install everything under $bootstrapPrefix
 ENV PATH="$bootstrapPrefix/bin:$PATH"
-RUN echo "export PATH=$bootstrapPrefix/bin:$PATH" > /etc/environment
+ENV C_INCLUDE_PATH="$bootstrapPrefix/include"
+ENV CPLUS_INCLUDE_PATH="$bootstrapPrefix/include"
+ENV CPATH="$bootstrapPrefix/include"
+ENV LD_LIBRARY_PATH="$bootstrapPrefix/lib64:$bootstrapPrefix/lib"
+RUN echo "export PATH=$PATH" > /etc/environment
+RUN echo "export CPATH=$CPATH" > /etc/environment
+RUN echo "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH" > /etc/environment
 RUN echo "$bootstrapPrefix/lib" > /etc/ld.so.conf.d/bootstrap.conf && ldconfig
 
 # Some dependencies to bootstrap Python, CMake, Ninja and Clang.
@@ -30,16 +37,14 @@ RUN yum upgrade && yum -y install gcc gcc-c++ glibc-devel subversion git autocon
 # subversion: 								Clone LLVM and Clang
 # git: 												Used to clone repositories, not a buildtime or runtime dep so we can use any version we want
 # automake/autoconf/libtool		Req to bootstrap libffi, which in turn is needed for Python3
-# make 												Req to bootstrap make (this is weird)
+# make 												Req to bootstrap libffi and zlib
 
-# Get, compile and install make (make in CentOS can't build libffi w/o documentation)
-RUN tar -xf make-$makeVersion.tar.gz && cd make-$makeVersion && sh ./configure --prefix=$bootstrapPrefix && make && make install && cd ..
 # Get, compile and install zlib (Python dep)
-RUN git clone https://github.com/libffi/libffi.git libffi && cd libffi && git checkout $libffiVersion && ./autogen.sh && ./configure --disable-docs --prefix=$bootstrapPrefix && make && make install && cd .. && ldconfig
-# Get, compile and install libffi (Python dep)
 RUN git clone https://github.com/madler/zlib.git zlib && cd zlib && git checkout $zlibVersion && ./configure --prefix=$bootstrapPrefix && make && make install && cd .. && ldconfig
+# Get, compile and install libffi (Python dep)
+RUN git clone https://github.com/libffi/libffi.git libffi && cd libffi && git checkout $libffiVersion && ./autogen.sh && ./configure --disable-docs --prefix=$bootstrapPrefix && make && make install && cd .. && ldconfig
 # Compile and install Python (which is also a dep for Ninja and Clang)
-RUN tar -xf Python-$pythonVersion.tgz && cd Python-$pythonVersion && ./configure --enable-optimizations --prefix=$bootstrapPrefix && make install && cd ..
+RUN tar -xf Python-$pythonVersion.tgz && cd Python-$pythonVersion && ./configure --enable-optimizations --prefix=$bootstrapPrefix &&  make install && cd ..
 # Install CMake (also Clang dep)
 RUN chmod +x cmake-$cmakeVersion.sh && ./cmake-$cmakeVersion.sh --prefix=$bootstrapPrefix --skip-license
 # Build ninja (Speedup Clang build a bit, as well as future builds)
